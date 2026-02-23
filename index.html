@@ -2,185 +2,505 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ v3.7 - Simple</title>
+  <title>SKV Auto DJ v4.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    body { font-family: system-ui; background: #0f172a; color: #e5e7eb; padding: 20px; }
-    .app { max-width: 720px; margin: 0 auto; background: #1e293b; padding: 24px; border-radius: 12px; }
-    button { padding: 10px 20px; margin: 8px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
-    .btn-primary { background: #22c55e; color: #000; font-weight: 600; }
-    .btn-secondary { background: #334155; color: #fff; }
-    .hidden { display: none; }
-    .error { background: #fee2e2; color: #dc2626; padding: 12px; border-radius: 8px; margin: 16px 0; }
-    .success { background: #dcfce7; color: #16a34a; padding: 12px; border-radius: 8px; margin: 16px 0; }
-    .item { padding: 12px; margin: 8px 0; background: #334155; border-radius: 8px; cursor: pointer; border-left: 4px solid transparent; }
-    .item.active { background: #2563eb; border-left-color: #38bdf8; }
+    :root {
+      --bg: #0f172a; --card: #1e293b; --accent: #38bdf8;
+      --text: #e5e7eb; --muted: #9ca3af; --success: #22c55e; --danger: #f97373;
+      --spotify: #1db954;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: var(--text); min-height: 100vh; padding: 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    h1 { font-size: 1.8rem; }
+    .badge { background: var(--spotify); color: #000; padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; }
+    
+    .card { background: var(--card); border-radius: 16px; padding: 24px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    .current-track { border-left: 4px solid var(--accent); }
+    .label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 8px; }
+    .title { font-size: 1.4rem; margin-bottom: 8px; }
+    .artist { color: var(--accent); font-size: 1rem; margin-bottom: 12px; }
+    .meta { color: var(--muted); font-size: 0.9rem; }
+    
+    .controls { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+    button {
+      padding: 12px 24px; border: none; border-radius: 999px;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
+    }
+    button:hover { transform: translateY(-2px); }
+    .btn-primary { background: var(--success); color: #000; }
+    .btn-spotify { background: var(--spotify); color: #000; }
+    .btn-secondary { background: rgba(148,163,184,0.2); color: var(--text); border: 1px solid rgba(148,163,184,0.3); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    
+    .player-controls { display: flex; align-items: center; gap: 16px; margin-top: 20px; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 12px; }
+    .player-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--text); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+    .volume { flex: 1; }
+    .volume input[type="range"] { width: 100%; height: 4px; background: rgba(148,163,184,0.3); border-radius: 2px; appearance: none; }
+    .volume input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; background: var(--text); border-radius: 50%; cursor: pointer; }
+    
+    .queue-item { padding: 12px; margin: 8px 0; background: rgba(15,23,42,0.5); border-radius: 8px; cursor: pointer; border-left: 4px solid transparent; transition: all 0.2s; }
+    .queue-item:hover { background: rgba(30,64,175,0.3); transform: translateX(4px); }
+    .queue-item.active { background: rgba(37,99,235,0.4); border-left-color: var(--accent); }
+    .queue-title { font-weight: 600; margin-bottom: 4px; }
+    .queue-artist { font-size: 0.85rem; color: var(--muted); }
+    .badge-type { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; background: rgba(148,163,184,0.2); margin-right: 8px; }
+    
+    .alert { padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+    .alert-error { background: rgba(249,115,115,0.2); border: 1px solid var(--danger); color: var(--danger); }
+    .alert-success { background: rgba(34,197,94,0.2); border: 1px solid var(--success); color: var(--success); }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-<div class="app">
-  <h1>🎵 SKV Auto DJ</h1>
-  
-  <div id="status"></div>
-  
-  <div style="margin: 20px 0;">
-    <button class="btn-primary" id="btnConnect">🔗 Подключить Spotify</button>
-    <button class="btn-primary hidden" id="btnPlay">▶ Играть</button>
-    <button class="btn-secondary" id="btnPrev">⟨⟨ Назад</button>
-    <button class="btn-secondary" id="btnNext">⟩⟩ Вперёд</button>
+<div class="container">
+  <header>
+    <h1>🎵 SKV Auto DJ</h1>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <span class="badge" id="statusBadge">v4.0</span>
+      <button class="btn-spotify" id="btnConnect">🔗 Подключить</button>
+    </div>
+  </header>
+
+  <div id="alert"></div>
+
+  <div class="card current-track">
+    <div class="label">Сейчас играет</div>
+    <div class="title" id="currentTitle">Загрузка...</div>
+    <div class="artist" id="currentArtist">—</div>
+    <div class="meta" id="currentIndex">—</div>
+    
+    <div class="controls">
+      <button class="btn-primary" id="btnOpen">🔗 Открыть в Spotify</button>
+      <button class="btn-spotify hidden" id="btnPlay">▶ Играть</button>
+      <button class="btn-secondary" id="btnPrev">⟨⟨ Назад</button>
+      <button class="btn-secondary" id="btnNext">⟩⟩ Вперёд</button>
+    </div>
+    
+    <div class="player-controls hidden" id="playerControls">
+      <button class="player-btn" id="btnPrevTrack">⏮</button>
+      <button class="player-btn" id="btnPlayPause">▶</button>
+      <button class="player-btn" id="btnNextTrack">⏭</button>
+      <div class="volume">
+        <input type="range" id="volumeSlider" min="0" max="100" value="50" />
+      </div>
+    </div>
   </div>
-  
-  <div id="current" style="margin: 20px 0; padding: 16px; background: #1e293b; border-radius: 8px;"></div>
-  
-  <div id="list"></div>
+
+  <div class="card">
+    <div class="label">Очередь</div>
+    <div id="queueList"></div>
+  </div>
 </div>
 
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script type="module">
-const CLIENT_ID = 'c4699c1d0e98455fab4d9307b671f80c';
-const REDIRECT = window.location.origin + '/callback';
-const SCOPES = 'streaming user-read-playback-state user-modify-playback-state';
-
-let token = null;
-let queue = [];
-let idx = 0;
-
-const els = {
-  status: document.getElementById('status'),
-  current: document.getElementById('current'),
-  list: document.getElementById('list'),
-  btnConnect: document.getElementById('btnConnect'),
-  btnPlay: document.getElementById('btnPlay'),
-  btnPrev: document.getElementById('btnPrev'),
-  btnNext: document.getElementById('btnNext')
+const CONFIG = {
+  CLIENT_ID: 'c4699c1d0e98455fab4d9307b671f80c',
+  REDIRECT_URI: window.location.origin + '/callback',
+  SCOPES: 'streaming user-read-playback-state user-modify-playback-state user-read-currently-playing',
+  STORAGE_KEY: 'skv-autodj-v4'
 };
 
-function showStatus(msg, isError = false) {
-  els.status.innerHTML = `<div class="${isError ? 'error' : 'success'}">${msg}</div>`;
+const DEFAULT_QUEUE = [
+  { url: 'https://open.spotify.com/album/2SMf2fZr3arg0Vw63T5nzQ', type: 'album' },
+  { url: 'https://open.spotify.com/album/4eYmRpMI7nUwnhEEPPwDyu', type: 'album' },
+  { url: 'https://open.spotify.com/album/2ApRKWzy7nuVboZJIrttm5', type: 'album' },
+  { url: 'https://open.spotify.com/playlist/6ao5XF0UXFW4YiBbaPVJf2', type: 'playlist' },
+  { url: 'https://open.spotify.com/album/5IIM2OiO6Mm3OSYgrV4IXa', type: 'album' },
+  { url: 'https://open.spotify.com/album/6QBs6v06fJ3LHMiX9weH79', type: 'album' },
+  { url: 'https://open.spotify.com/album/2Kr2Dii8vxP3wcjQpdNaHA', type: 'album' },
+  { url: 'https://open.spotify.com/playlist/2tVTJxWEvHrIjDroVO0vsk', type: 'playlist' }
+];
+
+// State
+let state = {
+  token: null,
+  refreshToken: null,
+  deviceId: null,
+  isPlaying: false,
+  queue: [],
+  currentIndex: 0,
+  userId: null
+};
+
+// Elements
+const els = {
+  alert: document.getElementById('alert'),
+  statusBadge: document.getElementById('statusBadge'),
+  btnConnect: document.getElementById('btnConnect'),
+  currentTitle: document.getElementById('currentTitle'),
+  currentArtist: document.getElementById('currentArtist'),
+  currentIndex: document.getElementById('currentIndex'),
+  btnOpen: document.getElementById('btnOpen'),
+  btnPlay: document.getElementById('btnPlay'),
+  btnPrev: document.getElementById('btnPrev'),
+  btnNext: document.getElementById('btnNext'),
+  playerControls: document.getElementById('playerControls'),
+  btnPlayPause: document.getElementById('btnPlayPause'),
+  btnPrevTrack: document.getElementById('btnPrevTrack'),
+  btnNextTrack: document.getElementById('btnNextTrack'),
+  volumeSlider: document.getElementById('volumeSlider'),
+  queueList: document.getElementById('queueList')
+};
+
+// Utils
+function showAlert(msg, type = 'error') {
+  els.alert.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+  setTimeout(() => els.alert.innerHTML = '', 5000);
 }
 
-async function connect() {
-  const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2,'0')).join('');
-  localStorage.setItem('verifier', verifier);
-  
-  const challenge = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(challenge))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-  
-  const url = `https://accounts.spotify.com/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT)}&code_challenge_method=S256&code_challenge=${codeChallenge}&scope=${encodeURIComponent(SCOPES)}`;
-  
-  window.location.href = url;
+function saveState() {
+  localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify({
+    token: state.token,
+    refreshToken: state.refreshToken,
+    queue: state.queue,
+    currentIndex: state.currentIndex
+  }));
 }
 
-async function getToken(code) {
-  const verifier = localStorage.getItem('verifier');
+function loadState() {
+  const saved = localStorage.getItem(CONFIG.STORAGE_KEY);
+  if (saved) {
+    const data = JSON.parse(saved);
+    state.token = data.token;
+    state.refreshToken = data.refreshToken;
+    state.queue = data.queue || [];
+    state.currentIndex = data.currentIndex || 0;
+  }
+}
+
+// Spotify Auth
+async function generateCodeChallenge(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function connectSpotify() {
+  const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
+  localStorage.setItem('spotify_verifier', verifier);
+  
+  const challenge = await generateCodeChallenge(verifier);
+  const params = new URLSearchParams({
+    client_id: CONFIG.CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: CONFIG.REDIRECT_URI,
+    code_challenge_method: 'S256',
+    code_challenge: challenge,
+    scope: CONFIG.SCOPES
+  });
+  
+  window.location.href = `https://accounts.spotify.com/authorize?${params}`;
+}
+
+async function exchangeCode(code) {
+  const verifier = localStorage.getItem('spotify_verifier');
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `client_id=${CLIENT_ID}&grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(REDIRECT)}&code_verifier=${verifier}`
+    body: new URLSearchParams({
+      client_id: CONFIG.CLIENT_ID,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: CONFIG.REDIRECT_URI,
+      code_verifier: verifier
+    })
   });
   
-  if (!res.ok) throw new Error('Failed: ' + res.status);
+  if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
   
   const data = await res.json();
-  token = data.access_token;
-  localStorage.setItem('token', token);
-  localStorage.setItem('refresh', data.refresh_token);
-  showStatus('✅ Spotify подключён!');
-  els.btnConnect.classList.add('hidden');
-  els.btnPlay.classList.remove('hidden');
+  state.token = data.access_token;
+  state.refreshToken = data.refresh_token;
+  localStorage.removeItem('spotify_verifier');
+  saveState();
 }
 
-async function loadQueue() {
-  const saved = localStorage.getItem('queue');
-  if (saved) {
-    queue = JSON.parse(saved);
-    idx = parseInt(localStorage.getItem('idx') || '0');
+async function refreshTokens() {
+  if (!state.refreshToken) return null;
+  
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: CONFIG.CLIENT_ID,
+      grant_type: 'refresh_token',
+      refresh_token: state.refreshToken
+    })
+  });
+  
+  if (!res.ok) return null;
+  
+  const data = await res.json();
+  state.token = data.access_token;
+  saveState();
+  return state.token;
+}
+
+async function getValidToken() {
+  if (state.token) return state.token;
+  return await refreshTokens();
+}
+
+// Spotify Player
+let player = null;
+
+async function initPlayer() {
+  if (!window.Spotify) {
+    showAlert('Spotify SDK не загрузился');
     return;
   }
   
-  const urls = [
-    'https://open.spotify.com/album/2SMf2fZr3arg0Vw63T5nzQ',
-    'https://open.spotify.com/album/4eYmRpMI7nUwnhEEPPwDyu',
-    'https://open.spotify.com/album/2ApRKWzy7nuVboZJIrttm5',
-    'https://open.spotify.com/playlist/6ao5XF0UXFW4YiBbaPVJf2',
-    'https://open.spotify.com/album/5IIM2OiO6Mm3OSYgrV4IXa',
-    'https://open.spotify.com/album/6QBs6v06fJ3LHMiX9weH79',
-    'https://open.spotify.com/album/2Kr2Dii8vxP3wcjQpdNaHA',
-    'https://open.spotify.com/playlist/2tVTJxWEvHrIjDroVO0vsk'
-  ];
+  player = new Spotify.Player({
+    name: 'SKV Auto DJ',
+    getOAuthToken: async cb => {
+      const token = await getValidToken();
+      cb(token);
+    },
+    volume: 0.5
+  });
   
-  for (const url of urls) {
-    try {
-      const res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url)}&format=json`);
-      if (res.ok) {
-        const data = await res.json();
-        queue.push({ title: data.title, artist: data.author_name, url, type: url.includes('playlist') ? 'playlist' : 'album' });
-      }
-    } catch (e) { console.warn('Failed:', url); }
+  player.addListener('ready', ({ device_id }) => {
+    state.deviceId = device_id;
+    console.log('✅ Device ready:', device_id);
+  });
+  
+  player.addListener('not_ready', () => {
+    state.deviceId = null;
+    console.log('❌ Device disconnected');
+  });
+  
+  player.addListener('player_state_changed', state => {
+    if (!state) return;
+    state.isPlaying = !state.paused;
+    updatePlayButton();
+  });
+  
+  player.addListener('authentication_error', err => {
+    console.error('Auth error:', err);
+    showAlert('Ошибка авторизации. Переподключите Spotify.');
+  });
+  
+  await player.connect();
+}
+
+function updatePlayButton() {
+  els.btnPlayPause.textContent = state.isPlaying ? '⏸' : '▶';
+  els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть';
+}
+
+async function getUserId() {
+  if (state.userId) return state.userId;
+  
+  const token = await getValidToken();
+  const res = await fetch('https://api.spotify.com/v1/me', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  if (res.ok) {
+    const data = await res.json();
+    state.userId = data.id;
+    return state.userId;
+  }
+  return null;
+}
+
+async function getSpotifyUri(url) {
+  const clean = url.split('?')[0];
+  const match = clean.match(/(?:album|playlist|track)\/([a-zA-Z0-9]+)/);
+  
+  if (!match) return null;
+  
+  const type = clean.includes('album') ? 'album' : clean.includes('playlist') ? 'playlist' : 'track';
+  const id = match[1];
+  
+  // For playlists, we need user ID
+  if (type === 'playlist') {
+    const userId = await getUserId();
+    if (userId) {
+      return `spotify:user:${userId}:playlist:${id}`;
+    }
   }
   
-  localStorage.setItem('queue', JSON.stringify(queue));
+  return `spotify:${type}:${id}`;
+}
+
+async function playCurrent() {
+  const item = state.queue[state.currentIndex];
+  if (!item) {
+    showAlert('Нет элемента в очереди');
+    return;
+  }
+  
+  const uri = await getSpotifyUri(item.url);
+  if (!uri) {
+    window.open(item.url, '_blank');
+    return;
+  }
+  
+  console.log('🎵 Playing:', item.title, uri);
+  
+  const token = await getValidToken();
+  if (!token) {
+    showAlert('Spotify не подключён');
+    return;
+  }
+  
+  if (!state.deviceId) {
+    showAlert('Устройство не найдено. Убедитесь, что Spotify запущен.');
+    return;
+  }
+  
+  try {
+    // Activate device
+    await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        device_ids: [state.deviceId],
+        play: false
+      })
+    });
+    
+    // Start playback
+    const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${state.deviceId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ uris: [uri] })
+    });
+    
+    if (res.ok) {
+      console.log('✅ Playback started');
+      state.isPlaying = true;
+      updatePlayButton();
+    } else {
+      const err = await res.text();
+      console.error('❌ Play failed:', res.status, err);
+      showAlert(`Ошибка воспроизведения: ${res.status}`);
+    }
+  } catch (e) {
+    console.error('❌ Error:', e);
+    showAlert('Ошибка: ' + e.message);
+  }
+}
+
+// Queue
+async function loadQueue() {
+  if (state.queue.length > 0) return;
+  
+  for (const item of DEFAULT_QUEUE) {
+    try {
+      const res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(item.url)}&format=json`);
+      if (res.ok) {
+        const data = await res.json();
+        const hasJazz = data.title.toLowerCase().includes('jazz') || data.title.toLowerCase().includes('blues');
+        state.queue.push({
+          title: data.title,
+          artist: hasJazz ? 'Jazz music cafe' : 'Wordless Melodies Studio',
+          url: item.url,
+          type: item.type,
+          color: hasJazz ? '#a78bfa' : '#38bdf8'
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to load:', item.url);
+    }
+  }
+  
+  saveState();
 }
 
 function render() {
-  const item = queue[idx];
+  const item = state.queue[state.currentIndex];
   if (!item) return;
   
-  els.current.innerHTML = `
-    <h2>${item.title}</h2>
-    <p style="color: #9ca3af">${item.artist}</p>
-    <p style="color: #9ca3af">${idx + 1} / ${queue.length}</p>
-  `;
+  els.currentTitle.textContent = item.title;
+  els.currentArtist.textContent = item.artist;
+  els.currentArtist.style.color = item.color || '#38bdf8';
+  els.currentIndex.textContent = `${state.currentIndex + 1} / ${state.queue.length}`;
   
-  els.list.innerHTML = queue.map((item, i) => `
-    <div class="item ${i === idx ? 'active' : ''}" onclick="window.selectItem(${i})">
-      <strong>${item.title}</strong><br>
-      <small style="color: #9ca3af">${item.artist}</small>
+  els.queueList.innerHTML = state.queue.map((item, i) => `
+    <div class="queue-item ${i === state.currentIndex ? 'active' : ''}" style="border-left-color: ${item.color}" onclick="window.selectItem(${i})">
+      <div class="queue-title"><span class="badge-type">${item.type.toUpperCase()}</span>${item.title}</div>
+      <div class="queue-artist">${item.artist}</div>
     </div>
   `).join('');
 }
 
-window.selectItem = (i) => { idx = i; render(); localStorage.setItem('idx', idx); };
+window.selectItem = (idx) => {
+  state.currentIndex = idx;
+  render();
+  saveState();
+};
 
-async function play() {
-  const item = queue[idx];
-  if (!item) return;
-  
-  showStatus('⏳ Открываю...');
-  
-  // 🔧 ПРОСТОЕ РЕШЕНИЕ: Просто открываем в Spotify
-  window.open(item.url, '_blank');
-  
-  showStatus('✅ Открыто в новой вкладке! Включи воспроизведение там.');
+// Event listeners
+els.btnConnect.onclick = () => connectSpotify();
+els.btnOpen.onclick = () => {
+  const item = state.queue[state.currentIndex];
+  if (item) window.open(item.url, '_blank');
+};
+els.btnPlay.onclick = () => playCurrent();
+els.btnPrev.onclick = () => {
+  state.currentIndex = (state.currentIndex - 1 + state.queue.length) % state.queue.length;
+  render();
+  saveState();
+};
+els.btnNext.onclick = () => {
+  state.currentIndex = (state.currentIndex + 1) % state.queue.length;
+  render();
+  saveState();
+};
+
+if (player) {
+  els.btnPlayPause.onclick = () => player.togglePlay();
+  els.btnPrevTrack.onclick = () => player.previousTrack();
+  els.btnNextTrack.onclick = () => player.nextTrack();
+  els.volumeSlider.oninput = (e) => player.setVolume(e.target.value / 100);
 }
 
 // Init
 (async () => {
-  token = localStorage.getItem('token');
-  if (token) {
+  loadState();
+  
+  // Check for callback
+  const code = new URLSearchParams(window.location.search).get('code');
+  if (code) {
+    try {
+      await exchangeCode(code);
+      window.history.replaceState({}, '', window.location.pathname);
+      await initPlayer();
+      els.btnConnect.classList.add('hidden');
+      els.playerControls.classList.remove('hidden');
+      els.btnPlay.classList.remove('hidden');
+      showAlert('✅ Spotify подключён!', 'success');
+    } catch (e) {
+      showAlert('Ошибка подключения: ' + e.message);
+    }
+  } else if (state.token) {
     els.btnConnect.classList.add('hidden');
+    els.playerControls.classList.remove('hidden');
     els.btnPlay.classList.remove('hidden');
-    showStatus('✅ Spotify подключён');
+    await initPlayer();
   }
   
   await loadQueue();
   render();
-  
-  els.btnConnect.onclick = connect;
-  els.btnPlay.onclick = play;
-  els.btnPrev.onclick = () => { idx = (idx - 1 + queue.length) % queue.length; render(); localStorage.setItem('idx', idx); };
-  els.btnNext.onclick = () => { idx = (idx + 1) % queue.length; render(); localStorage.setItem('idx', idx); };
-  
-  const code = new URLSearchParams(window.location.search).get('code');
-  if (code) {
-    try {
-      await getToken(code);
-      window.history.replaceState({}, '', window.location.pathname);
-      await loadQueue();
-      render();
-    } catch (e) {
-      showStatus('❌ Ошибка: ' + e.message, true);
-    }
-  }
 })();
 </script>
 </body>
