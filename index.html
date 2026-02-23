@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ v4.4</title>
+  <title>SKV Auto DJ v4.5</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -84,7 +84,7 @@
   <header>
     <h1>🎵 SKV Auto DJ</h1>
     <div style="display:flex;gap:12px;align-items:center;">
-      <span class="badge" id="statusBadge">v4.4</span>
+      <span class="badge" id="statusBadge">v4.5</span>
       <button class="btn-spotify" id="btnConnect">🔗 Подключить</button>
     </div>
   </header>
@@ -135,6 +135,7 @@
           <select id="addType">
             <option value="album">Альбом</option>
             <option value="playlist">Плейлист</option>
+            <option value="track">Трек</option>
           </select>
         </div>
         <div class="form-group">
@@ -147,7 +148,6 @@
   </div>
 </div>
 
-<!-- Edit Modal -->
 <div class="modal-overlay" id="editModal">
   <div class="modal">
     <h2>✏️ Редактировать</h2>
@@ -420,65 +420,71 @@ async function activatePlayerAndPlay() {
   await playCurrent();
 }
 
-async function getUserId() {
-  if (state.userId) return state.userId;
-  const token = await getValidToken();
-  if (!token) return null;
-  const res = await fetch('https://api.spotify.com/v1/me', {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  state.userId = data.id;
-  return state.userId;
-}
-
+// Helpers
 function extractSpotifyId(url) {
   const clean = url.split('?')[0];
   const parts = clean.split('/');
   const id = parts[parts.length - 1];
-  const type = clean.includes('album') ? 'album' : clean.includes('playlist') ? 'playlist' : 'track';
+  const type = clean.includes('album')
+    ? 'album'
+    : clean.includes('playlist')
+      ? 'playlist'
+      : clean.includes('track')
+        ? 'track'
+        : 'unknown';
   return { id, type };
 }
 
-async function getSpotifyUri(url) {
-  try {
-    const { id, type } = extractSpotifyId(url);
-    if (type === 'playlist') return `spotify:playlist:${id}`;
-    return `spotify:${type}:${id}`;
-  } catch (e) {
-    console.error('Failed to get URI:', e);
-    return null;
+function getSpotifyPlayPayload(item) {
+  const { id, type } = extractSpotifyId(item.url);
+  if (type === 'track') {
+    return { uris: [`spotify:track:${id}`] };
   }
+  if (type === 'album') {
+    return { context_uri: `spotify:album:${id}` };
+  }
+  if (type === 'playlist') {
+    return { context_uri: `spotify:playlist:${id}` };
+  }
+  return null;
 }
 
 async function playCurrent() {
   const item = state.queue[state.currentIndex];
   if (!item) { showAlert('Очередь пуста'); return; }
+
   if (!state.sdkReady || !player) {
     showAlert('Плеер не готов. Открываю в Spotify...', 'warning');
     window.open(item.url, '_blank');
     return;
   }
-  const uri = await getSpotifyUri(item.url);
-  if (!uri) { window.open(item.url, '_blank'); return; }
+
+  const payload = getSpotifyPlayPayload(item);
+  if (!payload) {
+    window.open(item.url, '_blank');
+    return;
+  }
+
   const token = await getValidToken();
   if (!token) { showAlert('Spotify не подключён'); return; }
   if (!state.deviceId) {
     showAlert('Устройство плеера ещё не готово. Подожди пару секунд или открой Spotify‑клиент.', 'warning');
     return;
   }
+
   try {
     await fetch('https://api.spotify.com/v1/me/player', {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_ids: [state.deviceId], play: false })
     });
+
     const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${state.deviceId}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uris: [uri] })
+      body: JSON.stringify(payload)
     });
+
     if (!res.ok) {
       const err = await res.text();
       console.error('❌ Play failed:', res.status, err);
@@ -604,7 +610,6 @@ els.btnOpen.onclick = () => {
 };
 els.btnPlay.onclick = () => activatePlayerAndPlay();
 
-// навигация по очереди
 els.btnPrev.onclick = async () => {
   if (!state.queue.length) return;
   state.currentIndex = (state.currentIndex - 1 + state.queue.length) % state.queue.length;
