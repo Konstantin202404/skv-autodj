@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ v4.1 - Full</title>
+  <title>SKV Auto DJ v4.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -40,7 +40,6 @@
     .btn-secondary { background: rgba(148,163,184,0.2); color: var(--text); border: 1px solid rgba(148,163,184,0.3); }
     .btn-edit { background: rgba(56,189,248,0.2); color: var(--accent); border: 1px solid var(--accent); }
     .btn-delete { background: rgba(249,115,115,0.2); color: var(--danger); border: 1px solid var(--danger); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     
     .player-controls { display: flex; align-items: center; gap: 16px; margin-top: 20px; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 12px; }
     .player-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--text); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
@@ -71,7 +70,13 @@
     .alert { padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     .alert-error { background: rgba(249,115,115,0.2); border: 1px solid var(--danger); color: var(--danger); }
     .alert-success { background: rgba(34,197,94,0.2); border: 1px solid var(--success); color: var(--success); }
+    .alert-warning { background: rgba(251,191,36,0.2); border: 1px solid #fbbf24; color: #fbbf24; }
     .hidden { display: none !important; }
+    
+    .sdk-status { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem; }
+    .sdk-status.loading { background: rgba(56,189,248,0.2); color: var(--accent); }
+    .sdk-status.ready { background: rgba(34,197,94,0.2); color: var(--success); }
+    .sdk-status.error { background: rgba(249,115,115,0.2); color: var(--danger); }
   </style>
 </head>
 <body>
@@ -79,12 +84,14 @@
   <header>
     <h1>🎵 SKV Auto DJ</h1>
     <div style="display:flex;gap:12px;align-items:center;">
-      <span class="badge" id="statusBadge">v4.1</span>
+      <span class="badge" id="statusBadge">v4.2</span>
       <button class="btn-spotify" id="btnConnect">🔗 Подключить</button>
     </div>
   </header>
 
   <div id="alert"></div>
+  
+  <div id="sdkStatus" class="sdk-status loading hidden">🔄 Загрузка Spotify SDK...</div>
 
   <div class="card current-track">
     <div class="label">Сейчас играет</div>
@@ -194,12 +201,14 @@ let state = {
   isPlaying: false,
   queue: [],
   currentIndex: 0,
-  userId: null
+  userId: null,
+  sdkReady: false
 };
 
 const els = {
   alert: document.getElementById('alert'),
   statusBadge: document.getElementById('statusBadge'),
+  sdkStatus: document.getElementById('sdkStatus'),
   btnConnect: document.getElementById('btnConnect'),
   currentTitle: document.getElementById('currentTitle'),
   currentArtist: document.getElementById('currentArtist'),
@@ -225,6 +234,12 @@ function showAlert(msg, type = 'error') {
   setTimeout(() => els.alert.innerHTML = '', 5000);
 }
 
+function showSdkStatus(msg, type = 'loading') {
+  els.sdkStatus.textContent = msg;
+  els.sdkStatus.className = `sdk-status ${type}`;
+  els.sdkStatus.classList.remove('hidden');
+}
+
 function saveState() {
   localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify({
     token: state.token,
@@ -245,6 +260,7 @@ function loadState() {
   }
 }
 
+// Spotify Auth
 async function generateCodeChallenge(verifier) {
   const encoder = new TextEncoder();
   const data = encoder.encode(verifier);
@@ -288,7 +304,7 @@ async function exchangeCode(code) {
   
   const data = await res.json();
   state.token = data.access_token;
-  state.refreshToken = data.refresh_token;
+  state.refreshToken = data.refreshToken;
   localStorage.removeItem('spotify_verifier');
   saveState();
 }
@@ -319,38 +335,77 @@ async function getValidToken() {
   return await refreshTokens();
 }
 
+// Spotify Player - с обработкой ошибок
 let player = null;
+
+// Проверяем загрузку SDK
+window.onSpotifyWebPlaybackSDKReady = () => {
+  state.sdkReady = true;
+  console.log('✅ Spotify SDK loaded');
+  showSdkStatus('✅ Spotify SDK готов', 'ready');
+  initPlayer();
+};
+
+// Таймаут на загрузку SDK
+setTimeout(() => {
+  if (!state.sdkReady) {
+    console.warn('⚠️ Spotify SDK not loaded after 5s');
+    showSdkStatus('⚠️ SDK не загрузился. Используйте "Открыть в Spotify"', 'error');
+  }
+}, 5000);
 
 async function initPlayer() {
   if (!window.Spotify) {
-    showAlert('Spotify SDK не загрузился');
+    console.error('❌ Spotify object not found');
+    showSdkStatus('❌ Ошибка загрузки SDK', 'error');
     return;
   }
   
-  player = new Spotify.Player({
-    name: 'SKV Auto DJ',
-    getOAuthToken: async cb => {
-      const token = await getValidToken();
-      cb(token);
-    },
-    volume: 0.5
-  });
-  
-  player.addListener('ready', ({ device_id }) => {
-    state.deviceId = device_id;
-    console.log('✅ Device:', device_id);
-  });
-  
-  player.addListener('not_ready', () => { state.deviceId = null; });
-  
-  player.addListener('player_state_changed', s => {
-    if (!s) return;
-    state.isPlaying = !s.paused;
-    els.btnPlayPause.textContent = state.isPlaying ? '⏸' : '▶';
-    els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть';
-  });
-  
-  await player.connect();
+  try {
+    player = new Spotify.Player({
+      name: 'SKV Auto DJ',
+      getOAuthToken: async cb => {
+        const token = await getValidToken();
+        cb(token);
+      },
+      volume: 0.5
+    });
+    
+    player.addListener('ready', ({ device_id }) => {
+      state.deviceId = device_id;
+      console.log('✅ Device ready:', device_id);
+      els.playerControls.classList.remove('hidden');
+      els.btnPlay.classList.remove('hidden');
+    });
+    
+    player.addListener('not_ready', () => {
+      state.deviceId = null;
+      console.log('❌ Device disconnected');
+    });
+    
+    player.addListener('player_state_changed', s => {
+      if (!s) return;
+      state.isPlaying = !s.paused;
+      els.btnPlayPause.textContent = state.isPlaying ? '⏸' : '▶';
+      els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть';
+    });
+    
+    player.addListener('authentication_error', err => {
+      console.error('Auth error:', err);
+      showAlert('Ошибка авторизации. Переподключите Spotify.');
+    });
+    
+    player.addListener('account_error', err => {
+      console.error('Account error:', err);
+      showAlert('Требуется Spotify Premium');
+    });
+    
+    await player.connect();
+    console.log('✅ Player initialized');
+  } catch (e) {
+    console.error('❌ Failed to init player:', e);
+    showSdkStatus('❌ Ошибка инициализации плеера', 'error');
+  }
 }
 
 async function getUserId() {
@@ -367,7 +422,6 @@ async function getUserId() {
   return null;
 }
 
-// 🔧 ИСПРАВЛЕНИЕ: Правильное извлечение ID
 function extractSpotifyId(url) {
   const clean = url.split('?')[0];
   const parts = clean.split('/');
@@ -380,7 +434,6 @@ async function getSpotifyUri(url) {
   try {
     const { id, type } = extractSpotifyId(url);
     
-    // Для плейлистов нужен user ID
     if (type === 'playlist') {
       const userId = await getUserId();
       if (userId) {
@@ -399,6 +452,13 @@ async function playCurrent() {
   const item = state.queue[state.currentIndex];
   if (!item) { showAlert('Нет элемента'); return; }
   
+  // 🔧 Если SDK не готов - просто открываем в Spotify
+  if (!state.sdkReady || !player) {
+    showAlert('SDK не загружен. Открываю в Spotify...', 'warning');
+    window.open(item.url, '_blank');
+    return;
+  }
+  
   const uri = await getSpotifyUri(item.url);
   if (!uri) { window.open(item.url, '_blank'); return; }
   
@@ -406,17 +466,15 @@ async function playCurrent() {
   
   const token = await getValidToken();
   if (!token) { showAlert('Spotify не подключён'); return; }
-  if (!state.deviceId) { showAlert('Устройство не найдено'); return; }
+  if (!state.deviceId) { showAlert('Устройство не найдено. Откройте Spotify.', 'warning'); return; }
   
   try {
-    // Активируем устройство
     await fetch('https://api.spotify.com/v1/me/player', {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_ids: [state.deviceId], play: false })
     });
     
-    // Запускаем
     const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${state.deviceId}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -431,11 +489,13 @@ async function playCurrent() {
     } else {
       const err = await res.text();
       console.error('❌ Play failed:', res.status, err);
-      showAlert(`Ошибка: ${res.status}`);
+      showAlert(`Ошибка: ${res.status}. Открываю в Spotify...`, 'warning');
+      window.open(item.url, '_blank');
     }
   } catch (e) {
     console.error('❌ Error:', e);
-    showAlert('Ошибка: ' + e.message);
+    showAlert('Ошибка. Открываю в Spotify...', 'warning');
+    window.open(item.url, '_blank');
   }
 }
 
@@ -511,7 +571,7 @@ els.editForm.onsubmit = (e) => {
 
 els.btnDeleteItem.onclick = () => {
   const idx = parseInt(document.getElementById('editIndex').value);
-  if (confirm('Удалить этот релиз?')) {
+  if (confirm('Удалить?')) {
     state.queue.splice(idx, 1);
     if (state.currentIndex >= state.queue.length) state.currentIndex = state.queue.length - 1;
     els.editModal.classList.remove('show');
@@ -567,17 +627,10 @@ if (player) {
     try {
       await exchangeCode(code);
       window.history.replaceState({}, '', window.location.pathname);
-      await initPlayer();
-      els.btnConnect.classList.add('hidden');
-      els.playerControls.classList.remove('hidden');
-      els.btnPlay.classList.remove('hidden');
-      showAlert('✅ Spotify подключён!', 'success');
+      showSdkStatus('🔄 Подключение...', 'loading');
     } catch (e) { showAlert('Ошибка: ' + e.message); }
   } else if (state.token) {
-    els.btnConnect.classList.add('hidden');
-    els.playerControls.classList.remove('hidden');
-    els.btnPlay.classList.remove('hidden');
-    await initPlayer();
+    showSdkStatus('🔄 Загрузка SDK...', 'loading');
   }
   
   await loadQueue();
