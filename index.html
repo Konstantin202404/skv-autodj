@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ Player v3.2 - Fixed</title>
+  <title>SKV Auto DJ Player v3.3 - Final Fix</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f172a" />
   <style>
@@ -342,19 +342,19 @@
     <div class="danger">Не для накрутки, только для комфорта.</div>
   </footer>
   
-  <div class="version">v3.2-Fixed</div>
+  <div class="version">v3.3-Final</div>
 </div>
 
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script type="module">
-const APP_VERSION = '3.2-Fixed';
+const APP_VERSION = '3.3-Final';
 const SPOTIFY_CLIENT_ID = 'c4699c1d0e98455fab4d9307b671f80c';
 const REDIRECT_URI = window.location.origin + '/callback';
 const SCOPES = 'streaming user-read-playback-state user-modify-playback-state user-read-currently-playing';
 
 const CONFIG = {
   TIMER_MINUTES: 60,
-  STORAGE_KEY: 'skv-autodj-state-v9',
+  STORAGE_KEY: 'skv-autodj-state-v10',
   DEFAULT_RELEASES: [
     { url: 'https://open.spotify.com/album/2SMf2fZr3arg0Vw63T5nzQ', type: 'album' },
     { url: 'https://open.spotify.com/album/4eYmRpMI7nUwnhEEPPwDyu', type: 'album' },
@@ -668,13 +668,22 @@ class App {
     }
   }
   
+  // 🔧 ИСПРАВЛЕНИЕ: Проверка на null
   updatePlaybackUI() {
+    if (!this.els.playPauseIcon || !this.els.playPauseText || !this.els.btnPlayPauseTrack || !this.els.nowPlayingIndicator) {
+      console.warn('⚠️ UI elements not found');
+      return;
+    }
     if (SpotifyPlayer.isPlaying) {
-      this.els.playPauseIcon.textContent = '⏸'; this.els.playPauseText.textContent = 'Пауза';
-      this.els.btnPlayPauseTrack.textContent = '⏸'; this.els.nowPlayingIndicator.classList.remove('hidden');
+      this.els.playPauseIcon.textContent = '⏸'; 
+      this.els.playPauseText.textContent = 'Пауза';
+      this.els.btnPlayPauseTrack.textContent = '⏸'; 
+      this.els.nowPlayingIndicator.classList.remove('hidden');
     } else {
-      this.els.playPauseIcon.textContent = '▶'; this.els.playPauseText.textContent = 'Играть';
-      this.els.btnPlayPauseTrack.textContent = '▶'; this.els.nowPlayingIndicator.classList.add('hidden');
+      this.els.playPauseIcon.textContent = '▶'; 
+      this.els.playPauseText.textContent = 'Играть';
+      this.els.btnPlayPauseTrack.textContent = '▶'; 
+      this.els.nowPlayingIndicator.classList.add('hidden');
     }
   }
   
@@ -694,7 +703,6 @@ class App {
       }
     };
     
-    // 🔧 ИСПРАВЛЕНИЕ: Кнопка Играть теперь использует ТЕКУЩИЙ индекс
     this.els.btnPlayPause.onclick = async () => { 
       console.log('▶️ Play button clicked, current idx:', this.idx);
       console.log('▶️ Current item:', this.queue.get(this.idx));
@@ -809,28 +817,45 @@ class App {
     if (this.timerOn) this.timer.reset(); 
   }
   
-  // 🔧 ИСПРАВЛЕНИЕ: Теперь точно берёт текущий индекс
   async playCurrent() {
     const item = this.queue.get(this.idx);
     if (!item) { console.error('❌ No item at idx', this.idx); return; }
     
     const uri = Utils.getSpotifyUri(item.url);
-    if (!uri) { Utils.openUrl(item.url); return; }
+    if (!uri) { 
+      console.error('❌ Invalid URI from:', item.url);
+      Utils.openUrl(item.url); return; 
+    }
     
     console.log('🎵 Playing:', item.title, 'URI:', uri, 'Idx:', this.idx);
     
     const token = await SpotifyAuth.getValidToken();
-    if (!token) { alert('Сессия истекла. Переподключитесь.'); return; }
+    if (!token) { 
+      console.error('❌ No valid token');
+      alert('Сессия истекла. Переподключитесь.'); 
+      return; 
+    }
     
-    // 🔧 Принудительно активируем устройство перед воспроизведением
-    await fetch('https://api.spotify.com/v1/me/player', {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ device_ids: [SpotifyPlayer.deviceId], play: true })
-    });
+    if (!SpotifyPlayer.deviceId) {
+      console.error('❌ No device ID');
+      alert('Устройство не найдено. Убедись, что Spotify запущен.');
+      return;
+    }
     
-    const success = await SpotifyPlayer.play(uri);
-    this._status(success ? '▶️ Играет' : '❌ Ошибка');
+    // 🔧 Активируем устройство
+    try {
+      await fetch('https://api.spotify.com/v1/me/player', {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ device_ids: [SpotifyPlayer.deviceId], play: true })
+      });
+      
+      const success = await SpotifyPlayer.play(uri);
+      this._status(success ? '▶️ Играет' : '❌ Ошибка воспроизведения');
+    } catch (e) {
+      console.error('❌ Play error:', e);
+      this._status('❌ Ошибка: ' + e.message);
+    }
   }
   
   openArtist() { const item = this.queue.get(this.idx); if (item?.artistUrl) { Utils.openUrl(item.artistUrl); } }
@@ -843,7 +868,15 @@ class App {
     this._save();
   }
   _save = Utils.debounce(() => Storage.save({ releases: this.queue.items, currentIndex: this.idx, timerEnabled: this.timerOn }), 300);
-  _status(msg, t = 1500) { const orig = this.els.status.innerHTML; this.els.status.innerHTML = `<span class="tag-dot"></span><span>${msg}</span>`; setTimeout(() => { this.els.status.innerHTML = orig; this.els.statusText.textContent = `v${APP_VERSION}`; }, t); }
+  _status(msg, t = 1500) { 
+    if (!this.els.status) return;
+    const orig = this.els.status.innerHTML; 
+    this.els.status.innerHTML = `<span class="tag-dot"></span><span>${msg}</span>`; 
+    setTimeout(() => { 
+      this.els.status.innerHTML = orig; 
+      this.els.statusText.textContent = `v${APP_VERSION}`; 
+    }, t); 
+  }
 }
 
 // === CALLBACK ===
