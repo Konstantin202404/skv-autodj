@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ v4.5</title>
+  <title>SKV Auto DJ v4.6</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -84,7 +84,7 @@
   <header>
     <h1>🎵 SKV Auto DJ</h1>
     <div style="display:flex;gap:12px;align-items:center;">
-      <span class="badge" id="statusBadge">v4.5</span>
+      <span class="badge" id="statusBadge">v4.6</span>
       <button class="btn-spotify" id="btnConnect">🔗 Подключить</button>
     </div>
   </header>
@@ -302,6 +302,10 @@ async function exchangeCode(code) {
   state.refreshToken = data.refresh_token || null;
   localStorage.removeItem('spotify_verifier');
   saveState();
+
+  // UI: помечаем, что подключено
+  els.btnConnect.textContent = '✅ Подключено';
+  els.btnConnect.disabled = true;
 }
 
 async function refreshTokens() {
@@ -334,7 +338,7 @@ let playerActivated = false;
 window.onSpotifyWebPlaybackSDKReady = () => {
   state.sdkReady = true;
   console.log('✅ Spotify SDK loaded');
-  showSdkStatus('✅ Spotify SDK загружен. Нажми «Играть в этом окне».', 'ready');
+  showSdkStatus('✅ Готово к воспроизведению.', 'ready');
 };
 
 setTimeout(() => {
@@ -639,6 +643,8 @@ els.btnNext.onclick = async () => {
     }
   } else if (state.token) {
     showSdkStatus('🔄 Токен есть. Ждём SDK...', 'loading');
+    els.btnConnect.textContent = '✅ Подключено';
+    els.btnConnect.disabled = true;
   }
   await loadQueue();
   render();
