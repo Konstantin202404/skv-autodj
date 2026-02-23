@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ v4.0</title>
+  <title>SKV Auto DJ v4.1 - Full</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -38,6 +38,8 @@
     .btn-primary { background: var(--success); color: #000; }
     .btn-spotify { background: var(--spotify); color: #000; }
     .btn-secondary { background: rgba(148,163,184,0.2); color: var(--text); border: 1px solid rgba(148,163,184,0.3); }
+    .btn-edit { background: rgba(56,189,248,0.2); color: var(--accent); border: 1px solid var(--accent); }
+    .btn-delete { background: rgba(249,115,115,0.2); color: var(--danger); border: 1px solid var(--danger); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     
     .player-controls { display: flex; align-items: center; gap: 16px; margin-top: 20px; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 12px; }
@@ -46,12 +48,25 @@
     .volume input[type="range"] { width: 100%; height: 4px; background: rgba(148,163,184,0.3); border-radius: 2px; appearance: none; }
     .volume input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; background: var(--text); border-radius: 50%; cursor: pointer; }
     
-    .queue-item { padding: 12px; margin: 8px 0; background: rgba(15,23,42,0.5); border-radius: 8px; cursor: pointer; border-left: 4px solid transparent; transition: all 0.2s; }
+    .queue-item { padding: 12px; margin: 8px 0; background: rgba(15,23,42,0.5); border-radius: 8px; cursor: pointer; border-left: 4px solid transparent; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between; }
     .queue-item:hover { background: rgba(30,64,175,0.3); transform: translateX(4px); }
     .queue-item.active { background: rgba(37,99,235,0.4); border-left-color: var(--accent); }
+    .queue-info { flex: 1; }
     .queue-title { font-weight: 600; margin-bottom: 4px; }
     .queue-artist { font-size: 0.85rem; color: var(--muted); }
+    .queue-actions { display: flex; gap: 8px; }
     .badge-type { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; background: rgba(148,163,184,0.2); margin-right: 8px; }
+    
+    .add-form { margin-top: 16px; padding: 16px; background: rgba(15,23,42,0.5); border-radius: 8px; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 0.85rem; }
+    .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid rgba(148,163,184,0.3); border-radius: 6px; background: rgba(15,23,42,0.8); color: var(--text); }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent); }
+    
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: var(--card); padding: 24px; border-radius: 16px; max-width: 500px; width: 90%; }
+    .modal h2 { margin-bottom: 16px; }
     
     .alert { padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     .alert-error { background: rgba(249,115,115,0.2); border: 1px solid var(--danger); color: var(--danger); }
@@ -64,7 +79,7 @@
   <header>
     <h1>🎵 SKV Auto DJ</h1>
     <div style="display:flex;gap:12px;align-items:center;">
-      <span class="badge" id="statusBadge">v4.0</span>
+      <span class="badge" id="statusBadge">v4.1</span>
       <button class="btn-spotify" id="btnConnect">🔗 Подключить</button>
     </div>
   </header>
@@ -97,6 +112,58 @@
   <div class="card">
     <div class="label">Очередь</div>
     <div id="queueList"></div>
+    
+    <details class="add-form">
+      <summary style="cursor:pointer;color:var(--accent);margin-bottom:12px;">+ Добавить релиз</summary>
+      <form id="addForm">
+        <div class="form-group">
+          <label>Название</label>
+          <input type="text" id="addTitle" required />
+        </div>
+        <div class="form-group">
+          <label>Исполнитель</label>
+          <input type="text" id="addArtist" />
+        </div>
+        <div class="form-group">
+          <label>Тип</label>
+          <select id="addType">
+            <option value="album">Альбом</option>
+            <option value="playlist">Плейлист</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Spotify URL</label>
+          <input type="url" id="addUrl" required placeholder="https://open.spotify.com/..." />
+        </div>
+        <button type="submit" class="btn-primary">Добавить</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h2>✏️ Редактировать</h2>
+    <form id="editForm">
+      <input type="hidden" id="editIndex" />
+      <div class="form-group">
+        <label>Название</label>
+        <input type="text" id="editTitle" required />
+      </div>
+      <div class="form-group">
+        <label>Исполнитель</label>
+        <input type="text" id="editArtist" />
+      </div>
+      <div class="form-group">
+        <label>Spotify URL</label>
+        <input type="url" id="editUrl" required />
+      </div>
+      <div style="display:flex;gap:12px;margin-top:16px;">
+        <button type="button" class="btn-delete" id="btnDeleteItem" style="flex:1">🗑️ Удалить</button>
+        <button type="submit" class="btn-primary" style="flex:1">💾 Сохранить</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -120,7 +187,6 @@ const DEFAULT_QUEUE = [
   { url: 'https://open.spotify.com/playlist/2tVTJxWEvHrIjDroVO0vsk', type: 'playlist' }
 ];
 
-// State
 let state = {
   token: null,
   refreshToken: null,
@@ -131,7 +197,6 @@ let state = {
   userId: null
 };
 
-// Elements
 const els = {
   alert: document.getElementById('alert'),
   statusBadge: document.getElementById('statusBadge'),
@@ -148,10 +213,13 @@ const els = {
   btnPrevTrack: document.getElementById('btnPrevTrack'),
   btnNextTrack: document.getElementById('btnNextTrack'),
   volumeSlider: document.getElementById('volumeSlider'),
-  queueList: document.getElementById('queueList')
+  queueList: document.getElementById('queueList'),
+  addForm: document.getElementById('addForm'),
+  editModal: document.getElementById('editModal'),
+  editForm: document.getElementById('editForm'),
+  btnDeleteItem: document.getElementById('btnDeleteItem')
 };
 
-// Utils
 function showAlert(msg, type = 'error') {
   els.alert.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
   setTimeout(() => els.alert.innerHTML = '', 5000);
@@ -177,7 +245,6 @@ function loadState() {
   }
 }
 
-// Spotify Auth
 async function generateCodeChallenge(verifier) {
   const encoder = new TextEncoder();
   const data = encoder.encode(verifier);
@@ -252,7 +319,6 @@ async function getValidToken() {
   return await refreshTokens();
 }
 
-// Spotify Player
 let player = null;
 
 async function initPlayer() {
@@ -272,41 +338,27 @@ async function initPlayer() {
   
   player.addListener('ready', ({ device_id }) => {
     state.deviceId = device_id;
-    console.log('✅ Device ready:', device_id);
+    console.log('✅ Device:', device_id);
   });
   
-  player.addListener('not_ready', () => {
-    state.deviceId = null;
-    console.log('❌ Device disconnected');
-  });
+  player.addListener('not_ready', () => { state.deviceId = null; });
   
-  player.addListener('player_state_changed', state => {
-    if (!state) return;
-    state.isPlaying = !state.paused;
-    updatePlayButton();
-  });
-  
-  player.addListener('authentication_error', err => {
-    console.error('Auth error:', err);
-    showAlert('Ошибка авторизации. Переподключите Spotify.');
+  player.addListener('player_state_changed', s => {
+    if (!s) return;
+    state.isPlaying = !s.paused;
+    els.btnPlayPause.textContent = state.isPlaying ? '⏸' : '▶';
+    els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть';
   });
   
   await player.connect();
 }
 
-function updatePlayButton() {
-  els.btnPlayPause.textContent = state.isPlaying ? '⏸' : '▶';
-  els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть';
-}
-
 async function getUserId() {
   if (state.userId) return state.userId;
-  
   const token = await getValidToken();
   const res = await fetch('https://api.spotify.com/v1/me', {
     headers: { 'Authorization': `Bearer ${token}` }
   });
-  
   if (res.ok) {
     const data = await res.json();
     state.userId = data.id;
@@ -315,84 +367,71 @@ async function getUserId() {
   return null;
 }
 
-async function getSpotifyUri(url) {
+// 🔧 ИСПРАВЛЕНИЕ: Правильное извлечение ID
+function extractSpotifyId(url) {
   const clean = url.split('?')[0];
-  const match = clean.match(/(?:album|playlist|track)\/([a-zA-Z0-9]+)/);
-  
-  if (!match) return null;
-  
+  const parts = clean.split('/');
+  const id = parts[parts.length - 1];
   const type = clean.includes('album') ? 'album' : clean.includes('playlist') ? 'playlist' : 'track';
-  const id = match[1];
-  
-  // For playlists, we need user ID
-  if (type === 'playlist') {
-    const userId = await getUserId();
-    if (userId) {
-      return `spotify:user:${userId}:playlist:${id}`;
+  return { id, type };
+}
+
+async function getSpotifyUri(url) {
+  try {
+    const { id, type } = extractSpotifyId(url);
+    
+    // Для плейлистов нужен user ID
+    if (type === 'playlist') {
+      const userId = await getUserId();
+      if (userId) {
+        return `spotify:user:${userId}:playlist:${id}`;
+      }
     }
+    
+    return `spotify:${type}:${id}`;
+  } catch (e) {
+    console.error('Failed to get URI:', e);
+    return null;
   }
-  
-  return `spotify:${type}:${id}`;
 }
 
 async function playCurrent() {
   const item = state.queue[state.currentIndex];
-  if (!item) {
-    showAlert('Нет элемента в очереди');
-    return;
-  }
+  if (!item) { showAlert('Нет элемента'); return; }
   
   const uri = await getSpotifyUri(item.url);
-  if (!uri) {
-    window.open(item.url, '_blank');
-    return;
-  }
+  if (!uri) { window.open(item.url, '_blank'); return; }
   
   console.log('🎵 Playing:', item.title, uri);
   
   const token = await getValidToken();
-  if (!token) {
-    showAlert('Spotify не подключён');
-    return;
-  }
-  
-  if (!state.deviceId) {
-    showAlert('Устройство не найдено. Убедитесь, что Spotify запущен.');
-    return;
-  }
+  if (!token) { showAlert('Spotify не подключён'); return; }
+  if (!state.deviceId) { showAlert('Устройство не найдено'); return; }
   
   try {
-    // Activate device
+    // Активируем устройство
     await fetch('https://api.spotify.com/v1/me/player', {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        device_ids: [state.deviceId],
-        play: false
-      })
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_ids: [state.deviceId], play: false })
     });
     
-    // Start playback
+    // Запускаем
     const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${state.deviceId}`, {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris: [uri] })
     });
     
     if (res.ok) {
-      console.log('✅ Playback started');
+      console.log('✅ Playing');
       state.isPlaying = true;
-      updatePlayButton();
+      els.btnPlayPause.textContent = '⏸';
+      els.btnPlay.textContent = '⏸ Пауза';
     } else {
       const err = await res.text();
       console.error('❌ Play failed:', res.status, err);
-      showAlert(`Ошибка воспроизведения: ${res.status}`);
+      showAlert(`Ошибка: ${res.status}`);
     }
   } catch (e) {
     console.error('❌ Error:', e);
@@ -400,7 +439,6 @@ async function playCurrent() {
   }
 }
 
-// Queue
 async function loadQueue() {
   if (state.queue.length > 0) return;
   
@@ -418,11 +456,8 @@ async function loadQueue() {
           color: hasJazz ? '#a78bfa' : '#38bdf8'
         });
       }
-    } catch (e) {
-      console.warn('Failed to load:', item.url);
-    }
+    } catch (e) { console.warn('Failed:', item.url); }
   }
-  
   saveState();
 }
 
@@ -436,36 +471,85 @@ function render() {
   els.currentIndex.textContent = `${state.currentIndex + 1} / ${state.queue.length}`;
   
   els.queueList.innerHTML = state.queue.map((item, i) => `
-    <div class="queue-item ${i === state.currentIndex ? 'active' : ''}" style="border-left-color: ${item.color}" onclick="window.selectItem(${i})">
-      <div class="queue-title"><span class="badge-type">${item.type.toUpperCase()}</span>${item.title}</div>
-      <div class="queue-artist">${item.artist}</div>
+    <div class="queue-item ${i === state.currentIndex ? 'active' : ''}" style="border-left-color: ${item.color}">
+      <div class="queue-info" onclick="window.selectItem(${i})">
+        <div class="queue-title"><span class="badge-type">${item.type.toUpperCase()}</span>${item.title}</div>
+        <div class="queue-artist">${item.artist}</div>
+      </div>
+      <div class="queue-actions">
+        <button class="btn-edit" onclick="window.editItem(${i})">✏️</button>
+      </div>
     </div>
   `).join('');
 }
 
-window.selectItem = (idx) => {
-  state.currentIndex = idx;
-  render();
-  saveState();
+window.selectItem = (idx) => { state.currentIndex = idx; render(); saveState(); };
+
+window.editItem = (idx) => {
+  const item = state.queue[idx];
+  document.getElementById('editIndex').value = idx;
+  document.getElementById('editTitle').value = item.title;
+  document.getElementById('editArtist').value = item.artist || '';
+  document.getElementById('editUrl').value = item.url;
+  els.editModal.classList.add('show');
 };
 
-// Event listeners
+els.editForm.onsubmit = (e) => {
+  e.preventDefault();
+  const idx = parseInt(document.getElementById('editIndex').value);
+  state.queue[idx] = {
+    ...state.queue[idx],
+    title: document.getElementById('editTitle').value,
+    artist: document.getElementById('editArtist').value,
+    url: document.getElementById('editUrl').value
+  };
+  els.editModal.classList.remove('show');
+  render();
+  saveState();
+  showAlert('✅ Сохранено', 'success');
+};
+
+els.btnDeleteItem.onclick = () => {
+  const idx = parseInt(document.getElementById('editIndex').value);
+  if (confirm('Удалить этот релиз?')) {
+    state.queue.splice(idx, 1);
+    if (state.currentIndex >= state.queue.length) state.currentIndex = state.queue.length - 1;
+    els.editModal.classList.remove('show');
+    render();
+    saveState();
+    showAlert('🗑️ Удалено', 'success');
+  }
+};
+
+els.editModal.onclick = (e) => { if (e.target === els.editModal) els.editModal.classList.remove('show'); };
+
+els.addForm.onsubmit = async (e) => {
+  e.preventDefault();
+  const title = document.getElementById('addTitle').value;
+  const artist = document.getElementById('addArtist').value;
+  const type = document.getElementById('addType').value;
+  const url = document.getElementById('addUrl').value;
+  
+  const hasJazz = title.toLowerCase().includes('jazz') || title.toLowerCase().includes('blues');
+  state.queue.push({
+    title,
+    artist: artist || (hasJazz ? 'Jazz music cafe' : 'Wordless Melodies Studio'),
+    url,
+    type,
+    color: hasJazz ? '#a78bfa' : '#38bdf8'
+  });
+  
+  els.addForm.reset();
+  render();
+  saveState();
+  showAlert('✅ Добавлено', 'success');
+};
+
 els.btnConnect.onclick = () => connectSpotify();
-els.btnOpen.onclick = () => {
-  const item = state.queue[state.currentIndex];
-  if (item) window.open(item.url, '_blank');
-};
+els.btnOpen.onclick = () => { const item = state.queue[state.currentIndex]; if (item) window.open(item.url, '_blank'); };
 els.btnPlay.onclick = () => playCurrent();
-els.btnPrev.onclick = () => {
-  state.currentIndex = (state.currentIndex - 1 + state.queue.length) % state.queue.length;
-  render();
-  saveState();
-};
-els.btnNext.onclick = () => {
-  state.currentIndex = (state.currentIndex + 1) % state.queue.length;
-  render();
-  saveState();
-};
+els.btnPrev.onclick = () => { state.currentIndex = (state.currentIndex - 1 + state.queue.length) % state.queue.length; render(); saveState(); };
+els.btnNext.onclick = () => { state.currentIndex = (state.currentIndex + 1) % state.queue.length; render(); saveState(); };
 
 if (player) {
   els.btnPlayPause.onclick = () => player.togglePlay();
@@ -478,7 +562,6 @@ if (player) {
 (async () => {
   loadState();
   
-  // Check for callback
   const code = new URLSearchParams(window.location.search).get('code');
   if (code) {
     try {
@@ -489,9 +572,7 @@ if (player) {
       els.playerControls.classList.remove('hidden');
       els.btnPlay.classList.remove('hidden');
       showAlert('✅ Spotify подключён!', 'success');
-    } catch (e) {
-      showAlert('Ошибка подключения: ' + e.message);
-    }
+    } catch (e) { showAlert('Ошибка: ' + e.message); }
   } else if (state.token) {
     els.btnConnect.classList.add('hidden');
     els.playerControls.classList.remove('hidden');
