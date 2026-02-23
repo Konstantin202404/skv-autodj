@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ v4.2</title>
+  <title>SKV Auto DJ v4.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -84,24 +84,23 @@
   <header>
     <h1>🎵 SKV Auto DJ</h1>
     <div style="display:flex;gap:12px;align-items:center;">
-      <span class="badge" id="statusBadge">v4.2</span>
+      <span class="badge" id="statusBadge">v4.3</span>
       <button class="btn-spotify" id="btnConnect">🔗 Подключить</button>
     </div>
   </header>
 
   <div id="alert"></div>
-  
   <div id="sdkStatus" class="sdk-status loading hidden">🔄 Загрузка Spotify SDK...</div>
 
   <div class="card current-track">
-    <div class="label">Сейчас играет</div>
+    <div class="label">Сейчас выбран</div>
     <div class="title" id="currentTitle">Загрузка...</div>
     <div class="artist" id="currentArtist">—</div>
     <div class="meta" id="currentIndex">—</div>
     
     <div class="controls">
       <button class="btn-primary" id="btnOpen">🔗 Открыть в Spotify</button>
-      <button class="btn-spotify hidden" id="btnPlay">▶ Играть</button>
+      <button class="btn-spotify hidden" id="btnPlay">▶ Играть в этом окне</button>
       <button class="btn-secondary" id="btnPrev">⟨⟨ Назад</button>
       <button class="btn-secondary" id="btnNext">⟩⟩ Вперёд</button>
     </div>
@@ -117,7 +116,7 @@
   </div>
 
   <div class="card">
-    <div class="label">Очередь</div>
+    <div class="label">Очередь релизов</div>
     <div id="queueList"></div>
     
     <details class="add-form">
@@ -253,14 +252,14 @@ function loadState() {
   const saved = localStorage.getItem(CONFIG.STORAGE_KEY);
   if (saved) {
     const data = JSON.parse(saved);
-    state.token = data.token;
-    state.refreshToken = data.refreshToken;
+    state.token = data.token || null;
+    state.refreshToken = data.refreshToken || null;
     state.queue = data.queue || [];
     state.currentIndex = data.currentIndex || 0;
   }
 }
 
-// Spotify Auth
+// Auth helpers
 async function generateCodeChallenge(verifier) {
   const encoder = new TextEncoder();
   const data = encoder.encode(verifier);
@@ -288,6 +287,8 @@ async function connectSpotify() {
 
 async function exchangeCode(code) {
   const verifier = localStorage.getItem('spotify_verifier');
+  if (!verifier) throw new Error('Нет verifier для PKCE');
+  
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -304,7 +305,7 @@ async function exchangeCode(code) {
   
   const data = await res.json();
   state.token = data.access_token;
-  state.refreshToken = data.refreshToken;
+  state.refreshToken = data.refresh_token || null; // важное исправление
   localStorage.removeItem('spotify_verifier');
   saveState();
 }
@@ -335,82 +336,118 @@ async function getValidToken() {
   return await refreshTokens();
 }
 
-// Spotify Player - с обработкой ошибок
+// Spotify Player
 let player = null;
+let playerActivated = false;
 
-// Проверяем загрузку SDK
+// SDK ready
 window.onSpotifyWebPlaybackSDKReady = () => {
   state.sdkReady = true;
   console.log('✅ Spotify SDK loaded');
-  showSdkStatus('✅ Spotify SDK готов', 'ready');
-  initPlayer();
+  showSdkStatus('✅ Spotify SDK загружен. Нажми «Играть в этом окне» после подключения.', 'ready');
+  // initPlayer будет вызван по клику, чтобы привязать к жесту пользователя
 };
 
-// Таймаут на загрузку SDK
 setTimeout(() => {
   if (!state.sdkReady) {
     console.warn('⚠️ Spotify SDK not loaded after 5s');
-    showSdkStatus('⚠️ SDK не загрузился. Используйте "Открыть в Spotify"', 'error');
+    showSdkStatus('⚠️ SDK не загрузился. Можно использовать «Открыть в Spotify».', 'error');
   }
 }, 5000);
 
-async function initPlayer() {
+async function initPlayerOnce() {
+  if (player) return;
   if (!window.Spotify) {
-    console.error('❌ Spotify object not found');
-    showSdkStatus('❌ Ошибка загрузки SDK', 'error');
+    showSdkStatus('❌ SDK не найден. Используйте «Открыть в Spotify».', 'error');
     return;
   }
-  
   try {
+    const token = await getValidToken();
+    if (!token) {
+      showAlert('Сначала подключи Spotify через кнопку «Подключить».');
+      return;
+    }
     player = new Spotify.Player({
       name: 'SKV Auto DJ',
       getOAuthToken: async cb => {
-        const token = await getValidToken();
-        cb(token);
+        const t = await getValidToken();
+        cb(t);
       },
       volume: 0.5
     });
-    
+
     player.addListener('ready', ({ device_id }) => {
       state.deviceId = device_id;
       console.log('✅ Device ready:', device_id);
       els.playerControls.classList.remove('hidden');
       els.btnPlay.classList.remove('hidden');
     });
-    
+
     player.addListener('not_ready', () => {
       state.deviceId = null;
       console.log('❌ Device disconnected');
     });
-    
+
     player.addListener('player_state_changed', s => {
       if (!s) return;
       state.isPlaying = !s.paused;
       els.btnPlayPause.textContent = state.isPlaying ? '⏸' : '▶';
-      els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть';
+      els.btnPlay.textContent = state.isPlaying ? '⏸ Пауза' : '▶ Играть в этом окне';
     });
-    
+
     player.addListener('authentication_error', err => {
       console.error('Auth error:', err);
-      showAlert('Ошибка авторизации. Переподключите Spotify.');
+      showAlert('Ошибка авторизации. Подключи Spotify заново.');
     });
-    
+
     player.addListener('account_error', err => {
       console.error('Account error:', err);
-      showAlert('Требуется Spotify Premium');
+      showAlert('Нужен Spotify Premium для проигрывания в браузере.');
     });
-    
-    await player.connect();
-    console.log('✅ Player initialized');
+
+    const connected = await player.connect();
+    if (!connected) {
+      showSdkStatus('❌ Не удалось подключить плеер.', 'error');
+    } else {
+      console.log('✅ Player initialized');
+    }
+
+    // Навешиваем обработчики, когда player точно есть
+    els.btnPlayPause.onclick = () => player.togglePlay();
+    els.btnPrevTrack.onclick = () => player.previousTrack();
+    els.btnNextTrack.onclick = () => player.nextTrack();
+    els.volumeSlider.oninput = (e) => player.setVolume(e.target.value / 100);
   } catch (e) {
     console.error('❌ Failed to init player:', e);
     showSdkStatus('❌ Ошибка инициализации плеера', 'error');
   }
 }
 
+async function activatePlayerAndPlay() {
+  // Вызов по клику: активация аудиоэлемента
+  await initPlayerOnce();
+  if (!player) {
+    // fallback
+    const item = state.queue[state.currentIndex];
+    if (item) window.open(item.url, '_blank');
+    return;
+  }
+  if (!playerActivated && player.activateElement) {
+    try {
+      await player.activateElement();
+      playerActivated = true;
+      console.log('🔓 Audio element activated');
+    } catch (e) {
+      console.warn('activateElement failed:', e);
+    }
+  }
+  await playCurrent();
+}
+
 async function getUserId() {
   if (state.userId) return state.userId;
   const token = await getValidToken();
+  if (!token) return null;
   const res = await fetch('https://api.spotify.com/v1/me', {
     headers: { 'Authorization': `Bearer ${token}` }
   });
@@ -433,14 +470,12 @@ function extractSpotifyId(url) {
 async function getSpotifyUri(url) {
   try {
     const { id, type } = extractSpotifyId(url);
-    
     if (type === 'playlist') {
       const userId = await getUserId();
       if (userId) {
-        return `spotify:user:${userId}:playlist:${id}`;
+        return `spotify:playlist:${id}`; // достаточно этого формата
       }
     }
-    
     return `spotify:${type}:${id}`;
   } catch (e) {
     console.error('Failed to get URI:', e);
@@ -450,58 +485,61 @@ async function getSpotifyUri(url) {
 
 async function playCurrent() {
   const item = state.queue[state.currentIndex];
-  if (!item) { showAlert('Нет элемента'); return; }
-  
-  // 🔧 Если SDK не готов - просто открываем в Spotify
+  if (!item) { showAlert('Очередь пуста'); return; }
+
   if (!state.sdkReady || !player) {
-    showAlert('SDK не загружен. Открываю в Spotify...', 'warning');
+    showAlert('Плеер не готов. Открываю в Spotify...', 'warning');
     window.open(item.url, '_blank');
     return;
   }
-  
   const uri = await getSpotifyUri(item.url);
-  if (!uri) { window.open(item.url, '_blank'); return; }
-  
-  console.log('🎵 Playing:', item.title, uri);
-  
+  if (!uri) {
+    window.open(item.url, '_blank');
+    return;
+  }
   const token = await getValidToken();
-  if (!token) { showAlert('Spotify не подключён'); return; }
-  if (!state.deviceId) { showAlert('Устройство не найдено. Откройте Spotify.', 'warning'); return; }
-  
+  if (!token) {
+    showAlert('Spotify не подключён');
+    return;
+  }
+  if (!state.deviceId) {
+    showAlert('Устройство плеера ещё не готово. Подожди пару секунд или открой Spotify-клиент.', 'warning');
+    return;
+  }
   try {
     await fetch('https://api.spotify.com/v1/me/player', {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_ids: [state.deviceId], play: false })
     });
-    
+
     const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${state.deviceId}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris: [uri] })
     });
-    
+
     if (res.ok) {
-      console.log('✅ Playing');
+      console.log('✅ Now playing in Web Player');
       state.isPlaying = true;
       els.btnPlayPause.textContent = '⏸';
       els.btnPlay.textContent = '⏸ Пауза';
     } else {
       const err = await res.text();
       console.error('❌ Play failed:', res.status, err);
-      showAlert(`Ошибка: ${res.status}. Открываю в Spotify...`, 'warning');
+      showAlert(`Ошибка воспроизведения (${res.status}). Открываю в Spotify...`, 'warning');
       window.open(item.url, '_blank');
     }
   } catch (e) {
     console.error('❌ Error:', e);
-    showAlert('Ошибка. Открываю в Spotify...', 'warning');
+    showAlert('Ошибка запроса. Открываю в Spotify...', 'warning');
     window.open(item.url, '_blank');
   }
 }
 
+// Queue rendering
 async function loadQueue() {
   if (state.queue.length > 0) return;
-  
   for (const item of DEFAULT_QUEUE) {
     try {
       const res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(item.url)}&format=json`);
@@ -516,7 +554,9 @@ async function loadQueue() {
           color: hasJazz ? '#a78bfa' : '#38bdf8'
         });
       }
-    } catch (e) { console.warn('Failed:', item.url); }
+    } catch (e) {
+      console.warn('Failed to load metadata:', item.url);
+    }
   }
   saveState();
 }
@@ -524,12 +564,11 @@ async function loadQueue() {
 function render() {
   const item = state.queue[state.currentIndex];
   if (!item) return;
-  
   els.currentTitle.textContent = item.title;
   els.currentArtist.textContent = item.artist;
   els.currentArtist.style.color = item.color || '#38bdf8';
   els.currentIndex.textContent = `${state.currentIndex + 1} / ${state.queue.length}`;
-  
+
   els.queueList.innerHTML = state.queue.map((item, i) => `
     <div class="queue-item ${i === state.currentIndex ? 'active' : ''}" style="border-left-color: ${item.color}">
       <div class="queue-info" onclick="window.selectItem(${i})">
@@ -571,9 +610,9 @@ els.editForm.onsubmit = (e) => {
 
 els.btnDeleteItem.onclick = () => {
   const idx = parseInt(document.getElementById('editIndex').value);
-  if (confirm('Удалить?')) {
+  if (confirm('Удалить этот релиз из очереди?')) {
     state.queue.splice(idx, 1);
-    if (state.currentIndex >= state.queue.length) state.currentIndex = state.queue.length - 1;
+    if (state.currentIndex >= state.queue.length) state.currentIndex = Math.max(0, state.queue.length - 1);
     els.editModal.classList.remove('show');
     render();
     saveState();
@@ -583,13 +622,13 @@ els.btnDeleteItem.onclick = () => {
 
 els.editModal.onclick = (e) => { if (e.target === els.editModal) els.editModal.classList.remove('show'); };
 
-els.addForm.onsubmit = async (e) => {
+// Forms & buttons
+els.addForm.onsubmit = (e) => {
   e.preventDefault();
   const title = document.getElementById('addTitle').value;
   const artist = document.getElementById('addArtist').value;
   const type = document.getElementById('addType').value;
   const url = document.getElementById('addUrl').value;
-  
   const hasJazz = title.toLowerCase().includes('jazz') || title.toLowerCase().includes('blues');
   state.queue.push({
     title,
@@ -598,7 +637,6 @@ els.addForm.onsubmit = async (e) => {
     type,
     color: hasJazz ? '#a78bfa' : '#38bdf8'
   });
-  
   els.addForm.reset();
   render();
   saveState();
@@ -606,33 +644,44 @@ els.addForm.onsubmit = async (e) => {
 };
 
 els.btnConnect.onclick = () => connectSpotify();
-els.btnOpen.onclick = () => { const item = state.queue[state.currentIndex]; if (item) window.open(item.url, '_blank'); };
-els.btnPlay.onclick = () => playCurrent();
-els.btnPrev.onclick = () => { state.currentIndex = (state.currentIndex - 1 + state.queue.length) % state.queue.length; render(); saveState(); };
-els.btnNext.onclick = () => { state.currentIndex = (state.currentIndex + 1) % state.queue.length; render(); saveState(); };
+els.btnOpen.onclick = () => {
+  const item = state.queue[state.currentIndex];
+  if (item) window.open(item.url, '_blank');
+};
+els.btnPlay.onclick = () => activatePlayerAndPlay();
 
-if (player) {
-  els.btnPlayPause.onclick = () => player.togglePlay();
-  els.btnPrevTrack.onclick = () => player.previousTrack();
-  els.btnNextTrack.onclick = () => player.nextTrack();
-  els.volumeSlider.oninput = (e) => player.setVolume(e.target.value / 100);
-}
+// При навигации по очереди сразу играем следующий/предыдущий в SDK (если он активирован)
+els.btnPrev.onclick = async () => {
+  if (!state.queue.length) return;
+  state.currentIndex = (state.currentIndex - 1 + state.queue.length) % state.queue.length;
+  render();
+  saveState();
+  // если player уже активирован, пытаемся играть
+  if (player) await playCurrent();
+};
+els.btnNext.onclick = async () => {
+  if (!state.queue.length) return;
+  state.currentIndex = (state.currentIndex + 1) % state.queue.length;
+  render();
+  saveState();
+  if (player) await playCurrent();
+};
 
 // Init
 (async () => {
   loadState();
-  
   const code = new URLSearchParams(window.location.search).get('code');
   if (code) {
     try {
       await exchangeCode(code);
-      window.history.replaceState({}, '', window.location.pathname);
-      showSdkStatus('🔄 Подключение...', 'loading');
-    } catch (e) { showAlert('Ошибка: ' + e.message); }
+      window.history.replaceState({}, '', window.location.origin + window.location.pathname);
+      showSdkStatus('🔄 Токен получен. Ждём SDK...', 'loading');
+    } catch (e) {
+      showAlert('Ошибка авторизации: ' + e.message);
+    }
   } else if (state.token) {
-    showSdkStatus('🔄 Загрузка SDK...', 'loading');
+    showSdkStatus('🔄 Токен есть. Ждём SDK...', 'loading');
   }
-  
   await loadQueue();
   render();
 })();
