@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>SKV Auto DJ Player v3.5 - Fixed Auth</title>
+  <title>SKV Auto DJ Player v3.6 - Playlist Fix</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     :root {
@@ -116,7 +116,7 @@
       </button>
       <div class="tag">
         <span class="tag-dot" id="statusDot"></span>
-        <span id="statusText">v3.5</span>
+        <span id="statusText">v3.6</span>
       </div>
     </div>
   </header>
@@ -150,7 +150,7 @@
   </div>
 </div>
 
-<div class="version">v3.5-Fixed</div>
+<div class="version">v3.6-Playlist</div>
 
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 <script type="module">
@@ -159,7 +159,7 @@ const REDIRECT_URI = window.location.origin + '/callback';
 const SCOPES = 'streaming user-read-playback-state user-modify-playback-state user-read-currently-playing';
 
 const CONFIG = {
-  STORAGE_KEY: 'skv-autodj-v11',
+  STORAGE_KEY: 'skv-autodj-v12',
   DEFAULT_RELEASES: [
     { url: 'https://open.spotify.com/album/2SMf2fZr3arg0Vw63T5nzQ', type: 'album' },
     { url: 'https://open.spotify.com/album/4eYmRpMI7nUwnhEEPPwDyu', type: 'album' },
@@ -177,7 +177,6 @@ const Storage = {
   save(data) { localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(data)); }
 };
 
-// 🔧 ИСПРАВЛЕННАЯ PKCE авторизация
 const SpotifyAuth = {
   token: null, refreshToken: null, expiresAt: 0,
   
@@ -192,13 +191,10 @@ const SpotifyAuth = {
   },
   
   async connect() {
-    // Генерируем случайный code verifier (43-128 символов)
     const array = new Uint8Array(32);
     window.crypto.getRandomValues(array);
     const codeVerifier = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-    
     localStorage.setItem('spotify_code_verifier', codeVerifier);
-    
     const codeChallenge = await this.generateCodeChallenge(codeVerifier);
     
     const params = new URLSearchParams({
@@ -210,17 +206,12 @@ const SpotifyAuth = {
       scope: SCOPES
     });
     
-    console.log('🔗 Redirecting to Spotify...');
     window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
   },
   
   async getToken(code) {
     const codeVerifier = localStorage.getItem('spotify_code_verifier');
-    if (!codeVerifier) {
-      throw new Error('Code verifier not found');
-    }
-    
-    console.log('🔑 Exchanging code for token...');
+    if (!codeVerifier) throw new Error('Code verifier not found');
     
     const params = new URLSearchParams({
       client_id: SPOTIFY_CLIENT_ID,
@@ -232,21 +223,13 @@ const SpotifyAuth = {
     
     const response = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params
     });
     
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('❌ Token error:', response.status, error);
-      throw new Error('Failed to get token: ' + response.status);
-    }
+    if (!response.ok) throw new Error('Failed to get token: ' + response.status);
     
     const data = await response.json();
-    console.log('✅ Token received');
-    
     this.token = data.access_token;
     this.refreshToken = data.refresh_token;
     this.expiresAt = Date.now() + (data.expires_in * 1000);
@@ -280,7 +263,6 @@ const SpotifyAuth = {
     const data = await response.json();
     this.token = data.access_token;
     this.expiresAt = Date.now() + (data.expires_in * 1000);
-    
     localStorage.setItem('spotify_token', this.token);
     localStorage.setItem('spotify_expires_at', this.expiresAt.toString());
     
@@ -288,9 +270,7 @@ const SpotifyAuth = {
   },
   
   async getValidToken() {
-    if (this.token && Date.now() < this.expiresAt - 60000) {
-      return this.token;
-    }
+    if (this.token && Date.now() < this.expiresAt - 60000) return this.token;
     
     const stored = localStorage.getItem('spotify_token');
     const expires = parseInt(localStorage.getItem('spotify_expires_at') || '0');
@@ -321,6 +301,7 @@ let deviceId = null;
 let isPlaying = false;
 let queue = [];
 let currentIdx = 0;
+let currentUserId = null;
 
 const els = {
   btnConnectSpotify: document.getElementById('btnConnectSpotify'),
@@ -350,137 +331,94 @@ function showError(msg) {
   setTimeout(() => els.errorMessage.classList.add('hidden'), 5000);
 }
 
+async function getCurrentUserId(token) {
+  if (currentUserId) return currentUserId;
+  
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      currentUserId = data.id;
+      return currentUserId;
+    }
+  } catch (e) {
+    console.error('Failed to get user ID:', e);
+  }
+  return null;
+}
+
 async function initSpotify() {
   if (!window.Spotify) { 
-    console.error('❌ Spotify SDK not loaded');
-    showError('Spotify SDK не загрузился. Проверьте подключение к интернету.');
+    showError('Spotify SDK не загрузился');
     return; 
   }
-  
-  console.log('🎵 Initializing Spotify Player...');
   
   player = new Spotify.Player({
     name: 'SKV Auto DJ',
     getOAuthToken: async cb => {
       const token = await SpotifyAuth.getValidToken();
-      if (token) {
-        cb(token);
-      } else {
-        console.error('❌ No valid token');
-        showError('Токен истёк. Переподключите Spotify.');
-      }
+      cb(token);
     },
     volume: 0.5
   });
   
   player.addListener('ready', ({ device_id }) => {
     deviceId = device_id;
-    console.log('✅ Device ready:', device_id);
+    console.log('✅ Device:', device_id);
   });
   
-  player.addListener('not_ready', () => {
-    deviceId = null;
-    console.log('❌ Device not ready');
-  });
+  player.addListener('not_ready', () => { deviceId = null; });
   
   player.addListener('player_state_changed', state => {
     if (!state) return;
     isPlaying = !state.paused;
-    console.log('▶️ Player state:', isPlaying ? 'playing' : 'paused');
     updatePlayButton();
   });
   
-  player.addListener('authentication_error', err => {
-    console.error('❌ Auth error:', err);
-    showError('Ошибка авторизации. Переподключите Spotify.');
-  });
-  
-  player.addListener('account_error', err => {
-    console.error('❌ Account error:', err);
-    showError('Требуется Spotify Premium.');
-  });
-  
-  try {
-    await player.connect();
-    console.log('✅ Player connected');
-  } catch (e) {
-    console.error('❌ Failed to connect player:', e);
-    showError('Не удалось подключить плеер: ' + e.message);
-  }
+  await player.connect();
 }
 
 function updatePlayButton() {
-  if (els.btnPlayPause) {
-    els.btnPlayPause.textContent = isPlaying ? '⏸ Пауза' : '▶ Играть';
-  }
-  if (els.btnPlayPauseTrack) {
-    els.btnPlayPauseTrack.textContent = isPlaying ? '⏸' : '▶';
-  }
+  if (els.btnPlayPause) els.btnPlayPause.textContent = isPlaying ? '⏸ Пауза' : '▶ Играть';
+  if (els.btnPlayPauseTrack) els.btnPlayPauseTrack.textContent = isPlaying ? '⏸' : '▶';
 }
 
 async function playCurrent() {
   const item = queue[currentIdx];
-  if (!item) {
-    showError('Нет элемента для воспроизведения');
-    return;
-  }
+  if (!item) { showError('Нет элемента'); return; }
   
-  const uri = getSpotifyUri(item.url);
-  if (!uri) { 
-    console.log('🔗 Opening in Spotify:', item.url);
-    window.open(item.url, '_blank'); 
-    return; 
-  }
+  const uri = await getCorrectSpotifyUri(item.url);
+  if (!uri) { window.open(item.url, '_blank'); return; }
   
-  console.log('🎵 Playing:', item.title, 'URI:', uri, 'Device:', deviceId);
+  console.log('🎵 Playing:', item.title, 'URI:', uri);
   
   const token = await SpotifyAuth.getValidToken();
-  if (!token) {
-    showError('Spotify не подключён. Нажмите "Подключить Spotify".');
-    return;
-  }
-  
-  if (!deviceId) {
-    showError('Устройство не найдено. Убедитесь, что Spotify запущен.');
-    return;
-  }
+  if (!token) { showError('Spotify не подключён'); return; }
+  if (!deviceId) { showError('Устройство не найдено. Открой Spotify.'); return; }
   
   try {
-    console.log('🔗 Activating device...');
-    const activateRes = await fetch('https://api.spotify.com/v1/me/player', {
+    await fetch('https://api.spotify.com/v1/me/player', {
       method: 'PUT',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ 
-        device_ids: [deviceId], 
-        play: false 
-      })
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_ids: [deviceId], play: false })
     });
     
-    if (!activateRes.ok) {
-      console.error('❌ Failed to activate device:', activateRes.status);
-    }
-    
-    console.log('🎵 Starting playback...');
-    const playRes = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+    const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris: [uri] })
     });
     
-    if (playRes.ok) {
-      console.log('✅ Playback started');
+    if (res.ok) {
+      console.log('✅ Playing');
       isPlaying = true;
       updatePlayButton();
     } else {
-      const err = await playRes.text();
-      console.error('❌ Play failed:', playRes.status, err);
-      showError(`Ошибка воспроизведения: ${playRes.status}`);
+      const err = await res.text();
+      console.error('❌ Play failed:', res.status, err);
+      showError(`Ошибка: ${res.status}`);
     }
   } catch (e) {
     console.error('❌ Error:', e);
@@ -488,26 +426,34 @@ async function playCurrent() {
   }
 }
 
-function getSpotifyUri(url) {
+async function getCorrectSpotifyUri(url) {
   const clean = url.split('?')[0];
   const match = clean.match(/(?:album|playlist|track)\/([a-zA-Z0-9]+)/);
-  if (match) {
-    const type = clean.includes('album') ? 'album' : clean.includes('playlist') ? 'playlist' : 'track';
-    return `spotify:${type}:${match[1]}`;
+  
+  if (!match) return null;
+  
+  const type = clean.includes('album') ? 'album' : clean.includes('playlist') ? 'playlist' : 'track';
+  const id = match[1];
+  
+  // 🔧 ИСПРАВЛЕНИЕ: Для плейлистов нужен user ID
+  if (type === 'playlist') {
+    const token = await SpotifyAuth.getValidToken();
+    const userId = await getCurrentUserId(token);
+    if (userId) {
+      return `spotify:user:${userId}:playlist:${id}`;
+    }
   }
-  return null;
+  
+  return `spotify:${type}:${id}`;
 }
 
 function getArtistForTitle(title) {
   const hasJazzOrBlues = title.toLowerCase().includes('jazz') || title.toLowerCase().includes('blues');
-  if (hasJazzOrBlues) {
-    return { artist: 'Jazz music cafe', color: '#a78bfa' };
-  }
+  if (hasJazzOrBlues) return { artist: 'Jazz music cafe', color: '#a78bfa' };
   return { artist: 'Wordless Melodies Studio', color: '#38bdf8' };
 }
 
 async function fetchMetadata() {
-  console.log('📥 Fetching metadata...');
   const releases = [];
   for (const item of CONFIG.DEFAULT_RELEASES) {
     try {
@@ -522,10 +468,9 @@ async function fetchMetadata() {
           type: item.type,
           url: item.url
         });
-        console.log('✅ Loaded:', data.title);
       }
     } catch (e) {
-      console.warn('❌ Failed to fetch:', item.url, e);
+      console.warn('Failed:', item.url);
     }
   }
   return releases;
@@ -542,61 +487,40 @@ function render() {
   els.currentCard.style.borderLeftColor = item.accentColor || '#38bdf8';
   els.currentIndex.textContent = `${currentIdx + 1} / ${queue.length}`;
   
-  els.list.innerHTML = '<div style="color:var(--text-muted);margin-bottom:8px;">Очередь релизов</div>';
+  els.list.innerHTML = '<div style="color:var(--text-muted);margin-bottom:8px;">Очередь</div>';
   queue.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'list-item' + (i === currentIdx ? ' active' : '');
     div.style.borderLeftColor = item.accentColor || '#38bdf8';
-    div.innerHTML = `
-      <span class="badge">${item.type.toUpperCase()}</span>
-      <div style="flex:1">
-        <div class="list-title-text">🎵 ${item.title}</div>
-        <div class="list-artist">${item.artist}</div>
-      </div>
-    `;
-    div.onclick = () => {
-      currentIdx = i;
-      render();
-      Storage.save({ queue, currentIdx });
-    };
+    div.innerHTML = `<span class="badge">${item.type.toUpperCase()}</span><div style="flex:1"><div class="list-title-text">🎵 ${item.title}</div><div class="list-artist">${item.artist}</div></div>`;
+    div.onclick = () => { currentIdx = i; render(); Storage.save({ queue, currentIdx }); };
     els.list.appendChild(div);
   });
 }
 
-// Инициализация
 (async () => {
-  console.log('🚀 Initializing app...');
-  
-  // Загружаем очередь
   const saved = Storage.load();
   if (saved && saved.queue) {
     queue = saved.queue;
     currentIdx = saved.currentIdx || 0;
-    console.log('✅ Loaded from storage');
   } else {
     queue = await fetchMetadata();
     currentIdx = 0;
     Storage.save({ queue, currentIdx });
   }
   
-  // Проверяем подключение
   const connected = SpotifyAuth.isConnected();
   if (connected) {
-    console.log('✅ Spotify connected, initializing...');
     els.btnConnectSpotify.classList.add('connected');
     els.connectSpotifyText.textContent = 'Spotify подключён';
     els.statusDot.classList.remove('offline');
     els.playbackControls.classList.remove('hidden');
     els.btnPlayPause.classList.remove('hidden');
     await initSpotify();
-  } else {
-    console.log('⚠️ Spotify not connected');
-    els.statusDot.classList.add('offline');
   }
   
   render();
   
-  // Обработчики
   els.btnConnectSpotify.onclick = async () => {
     if (SpotifyAuth.isConnected()) {
       SpotifyAuth.disconnect();
@@ -606,22 +530,10 @@ function render() {
     }
   };
   
-  els.btnOpen.onclick = () => {
-    const item = queue[currentIdx];
-    if (item) window.open(item.url, '_blank');
-  };
-  
+  els.btnOpen.onclick = () => { const item = queue[currentIdx]; if (item) window.open(item.url, '_blank'); };
   els.btnPlayPause.onclick = () => playCurrent();
-  els.btnPrev.onclick = () => { 
-    currentIdx = (currentIdx - 1 + queue.length) % queue.length; 
-    render(); 
-    Storage.save({ queue, currentIdx }); 
-  };
-  els.btnNext.onclick = () => { 
-    currentIdx = (currentIdx + 1) % queue.length; 
-    render(); 
-    Storage.save({ queue, currentIdx }); 
-  };
+  els.btnPrev.onclick = () => { currentIdx = (currentIdx - 1 + queue.length) % queue.length; render(); Storage.save({ queue, currentIdx }); };
+  els.btnNext.onclick = () => { currentIdx = (currentIdx + 1) % queue.length; render(); Storage.save({ queue, currentIdx }); };
   
   if (player) {
     els.btnPlayPauseTrack.onclick = () => player.togglePlay();
@@ -630,16 +542,13 @@ function render() {
     els.volumeSlider.oninput = (e) => player.setVolume(e.target.value / 100);
   }
   
-  // Callback
   const urlParams = new URLSearchParams(window.location.search);
   const code = urlParams.get('code');
   const error = urlParams.get('error');
   
   if (error) {
-    console.error('❌ OAuth error:', error);
-    showError('Ошибка авторизации: ' + error);
+    showError('Ошибка: ' + error);
   } else if (code) {
-    console.log('🔑 Received code, exchanging for token...');
     try {
       await SpotifyAuth.getToken(code);
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -649,10 +558,8 @@ function render() {
       els.statusDot.classList.remove('offline');
       els.playbackControls.classList.remove('hidden');
       els.btnPlayPause.classList.remove('hidden');
-      console.log('✅ Connected successfully');
     } catch (e) {
-      console.error('❌ Failed to connect:', e);
-      showError('Не удалось подключиться: ' + e.message);
+      showError('Ошибка: ' + e.message);
     }
   }
 })();
